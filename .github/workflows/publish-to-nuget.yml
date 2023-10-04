@@ -3,7 +3,7 @@ on:
   push:
     tags:
     - v*
-    
+
 jobs:
   publish:
     name: build, pack & publish
@@ -14,7 +14,7 @@ jobs:
         uses: actions/setup-dotnet@v1
         with:
           dotnet-version: 7.0.x
-          
+
       - name: Build with dotnet
         run: dotnet build --configuration Release
         working-directory: ./
@@ -22,4 +22,4 @@ jobs:
         run: dotnet pack --output nuget-packages --configuration Release
 
       - name: Push with dotnet
-        run: dotnet nuget push ./nuget-packages/*.nupkg --api-key ${{secrets.HAPPYGEEKS_NUGET_PUBLIC}} --source https://api.nuget.org/v3/index.json
+        run: dotnet nuget push ./nuget-packages/*.nupkg --api-key ${{secrets.HAPPY_HORIZON_NUGET_PUBLIC}} --source https://api.nuget.org/v3/index.json
