@@ -14,5 +14,5 @@ public class Amount
     /// Gets or Sets the currency in ISO 4217 three letter codes
     /// For example EUR for euro
     /// </summary>
-    public string Currency { get; set; }
+    public string? Currency { get; set; }
 }

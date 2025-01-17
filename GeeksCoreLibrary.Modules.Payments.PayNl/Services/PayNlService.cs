@@ -28,36 +28,29 @@ using TransactionStartBody = GeeksCoreLibrary.Modules.Payments.PayNl.Models.Tran
 namespace GeeksCoreLibrary.Modules.Payments.PayNl.Services;
 
 /// <inheritdoc cref="IPaymentServiceProviderService" />
-public class PayNlService : PaymentServiceProviderBaseService, IPaymentServiceProviderService, IScopedService
+public class PayNlService(
+    IDatabaseHelpersService databaseHelpersService,
+    IDatabaseConnection databaseConnection,
+    ILogger<PaymentServiceProviderBaseService> logger,
+    IOptions<GclSettings> gclSettings,
+    IShoppingBasketsService shoppingBasketsService,
+    IHttpContextAccessor? httpContextAccessor = null)
+    : PaymentServiceProviderBaseService(databaseHelpersService, databaseConnection, logger, httpContextAccessor), IPaymentServiceProviderService, IScopedService
 {
     private const string BaseUrl = "https://rest.pay.nl/";
-    private readonly IDatabaseConnection databaseConnection;
-    private readonly ILogger<PaymentServiceProviderBaseService> logger;
-    private readonly IHttpContextAccessor httpContextAccessor;
-    private readonly GclSettings gclSettings;
-    private readonly IShoppingBasketsService shoppingBasketsService;
-
-    public PayNlService(
-        IDatabaseHelpersService databaseHelpersService,
-        IDatabaseConnection databaseConnection,
-        ILogger<PaymentServiceProviderBaseService> logger,
-        IOptions<GclSettings> gclSettings,
-        IShoppingBasketsService shoppingBasketsService,
-        IHttpContextAccessor httpContextAccessor = null) : base(databaseHelpersService, databaseConnection, logger, httpContextAccessor)
-    {
-        this.databaseConnection = databaseConnection;
-        this.logger = logger;
-        this.shoppingBasketsService = shoppingBasketsService;
-        this.gclSettings = gclSettings.Value;
-        this.httpContextAccessor = httpContextAccessor;
-    }
+    private readonly IDatabaseConnection databaseConnection = databaseConnection;
+    private readonly ILogger<PaymentServiceProviderBaseService> logger = logger;
+    private readonly IHttpContextAccessor? httpContextAccessor = httpContextAccessor;
+    private readonly GclSettings gclSettings = gclSettings.Value;
 
     /// <inheritdoc />
-    public async Task<PaymentRequestResult> HandlePaymentRequestAsync(ICollection<(WiserItemModel Main, List<WiserItemModel> Lines)> conceptOrders, WiserItemModel userDetails,
+    public async Task<PaymentRequestResult> HandlePaymentRequestAsync(
+        ICollection<(WiserItemModel Main, List<WiserItemModel> Lines)> conceptOrders,
+        WiserItemModel userDetails,
         PaymentMethodSettingsModel paymentMethodSettings, string invoiceNumber)
     {
-        var payNlSettings = (PayNLSettingsModel)paymentMethodSettings.PaymentServiceProvider;
-        var validationResult = ValidatePayNLSettings(payNlSettings);
+        var payNlSettings = (PayNlSettingsModel) paymentMethodSettings.PaymentServiceProvider;
+        var validationResult = ValidatePayNlSettings(payNlSettings);
         if (!validationResult.Valid)
         {
             logger.LogError("Validation in 'HandlePaymentRequestAsync' of 'PayNlService' failed because: {Message}", validationResult.Message);
@@ -75,14 +68,14 @@ public class PayNlService : PaymentServiceProviderBaseService, IPaymentServicePr
         var restClient = CreateRestClient(payNlSettings);
         var restRequest = CreateTransactionStartRequest(totalPrice, payNlSettings, invoiceNumber);
         var restResponse = await restClient.ExecuteAsync(restRequest);
-        var responseJson = JObject.Parse(restResponse.Content);
+        var responseJson = String.IsNullOrWhiteSpace(restResponse.Content) ? new JObject() : JObject.Parse(restResponse.Content);
         var responseSuccessful = restResponse.StatusCode == HttpStatusCode.Created;
 
         return new PaymentRequestResult
         {
             Successful = responseSuccessful,
             Action = PaymentRequestActions.Redirect,
-            ActionData = (responseSuccessful) ? responseJson["paymentUrl"]?.ToString() : payNlSettings.FailUrl
+            ActionData = responseSuccessful ? responseJson["paymentUrl"]?.ToString() : payNlSettings.FailUrl
         };
     }
 
@@ -98,15 +91,16 @@ public class PayNlService : PaymentServiceProviderBaseService, IPaymentServicePr
                 Status = "Error retrieving status: No HttpContext available."
             };
         }
+
         // The settings have been checked during transaction creation so we don't do so again
-        var payNlSettings = (PayNLSettingsModel)paymentMethodSettings.PaymentServiceProvider;
+        var payNlSettings = (PayNlSettingsModel) paymentMethodSettings.PaymentServiceProvider;
 
         var restClient = CreateRestClient(payNlSettings);
         var payNlTransactionId = httpContextAccessor.HttpContext.Request.Form["id"];
         var restRequest = new RestRequest($"/v2/transactions/{payNlTransactionId}");
         var restResponse = await restClient.ExecuteAsync(restRequest);
 
-        if (restResponse.StatusCode != HttpStatusCode.OK)
+        if (restResponse.StatusCode != HttpStatusCode.OK || String.IsNullOrWhiteSpace(restResponse.Content))
         {
             return new StatusUpdateResult
             {
@@ -114,12 +108,13 @@ public class PayNlService : PaymentServiceProviderBaseService, IPaymentServicePr
                 Status = "error"
             };
         }
+
         var responseJson = JObject.Parse(restResponse.Content);
         var status = responseJson["status"]?["action"]?.ToString();
 
         if (String.IsNullOrWhiteSpace(status))
         {
-            await LogIncomingPaymentActionAsync(PaymentServiceProviders.PayNl, String.Empty, (int)restResponse.StatusCode, responseBody: restResponse.Content);
+            await LogIncomingPaymentActionAsync(PaymentServiceProviders.PayNl, String.Empty, (int) restResponse.StatusCode, responseBody: restResponse.Content);
             return new StatusUpdateResult
             {
                 Successful = false,
@@ -129,7 +124,7 @@ public class PayNlService : PaymentServiceProviderBaseService, IPaymentServicePr
 
         var invoiceNumber = responseJson["orderId"]?.ToString();
 
-        await LogIncomingPaymentActionAsync(PaymentServiceProviders.PayNl, invoiceNumber, (int)restResponse.StatusCode, responseBody: restResponse.Content);
+        await LogIncomingPaymentActionAsync(PaymentServiceProviders.PayNl, invoiceNumber, (int) restResponse.StatusCode, responseBody: restResponse.Content);
 
         return new StatusUpdateResult
         {
@@ -161,7 +156,7 @@ WHERE paymentServiceProvider.id = ?id
 AND paymentServiceProvider.entity_type = '{Constants.PaymentServiceProviderEntityType}'";
 
 
-        var result = new PayNLSettingsModel
+        var result = new PayNlSettingsModel
         {
             Id = paymentServiceProviderSettings.Id,
             Title = paymentServiceProviderSettings.Title,
@@ -187,16 +182,16 @@ AND paymentServiceProvider.entity_type = '{Constants.PaymentServiceProviderEntit
     }
 
     /// <inheritdoc />
-    public string GetInvoiceNumberFromRequest()
+    public Task<string> GetInvoiceNumberFromRequestAsync()
     {
-        return HttpContextHelpers.GetRequestValue(httpContextAccessor?.HttpContext, PayNlConstants.WebhookInvoiceNumberProperty);
+        return Task.FromResult(HttpContextHelpers.GetRequestValue(httpContextAccessor?.HttpContext, PayNlConstants.WebhookInvoiceNumberProperty));
     }
 
-    private static RestClient CreateRestClient(PayNLSettingsModel payNlSettings)
+    private static RestClient CreateRestClient(PayNlSettingsModel payNlSettings)
     {
         return new RestClient(new RestClientOptions(BaseUrl)
         {
-            Authenticator = new HttpBasicAuthenticator(payNlSettings.Username, payNlSettings.Password)
+            Authenticator = new HttpBasicAuthenticator(payNlSettings.Username!, payNlSettings.Password!)
         });
     }
 
@@ -213,7 +208,7 @@ AND paymentServiceProvider.entity_type = '{Constants.PaymentServiceProviderEntit
         return totalPrice;
     }
 
-    private (bool Valid, string Message) ValidatePayNLSettings(PayNLSettingsModel payNlSettings)
+    private static (bool Valid, string Message) ValidatePayNlSettings(PayNlSettingsModel payNlSettings)
     {
         if (String.IsNullOrEmpty(payNlSettings.Username) || String.IsNullOrEmpty(payNlSettings.Password))
         {
@@ -225,10 +220,10 @@ AND paymentServiceProvider.entity_type = '{Constants.PaymentServiceProviderEntit
             return (false, "PayNL misconfigured: Username is an AT-code but no ServiceId is set.");
         }
 
-        return (true, null);
+        return (true, String.Empty);
     }
 
-    private RestRequest CreateTransactionStartRequest(decimal totalPrice, PayNLSettingsModel payNlSettings, string invoiceNumber)
+    private RestRequest CreateTransactionStartRequest(decimal totalPrice, PayNlSettingsModel payNlSettings, string invoiceNumber)
     {
         var restRequest = new RestRequest("/v2/transactions", Method.Post);
 
@@ -237,7 +232,7 @@ AND paymentServiceProvider.entity_type = '{Constants.PaymentServiceProviderEntit
             ServiceId = payNlSettings.ServiceId,
             Amount = new Amount
             {
-                Value = (int)Math.Round(totalPrice * 100),
+                Value = (int) Math.Round(totalPrice * 100),
                 Currency = payNlSettings.Currency
             },
             Description = $"Order #{invoiceNumber}",
