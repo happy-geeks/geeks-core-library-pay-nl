@@ -6,13 +6,13 @@
         <Nullable>enable</Nullable>
         <Authors>Happy Horizon B.V.</Authors>
         <Description>Pay.nl plugin for the order process of the GeeksCoreLibrary.</Description>
-        <AssemblyVersion>5.3.2503.2</AssemblyVersion>
-        <FileVersion>5.3.2503.2</FileVersion>
-        <Version>5.3.2503.2</Version>
+        <AssemblyVersion>5.3.2503.3</AssemblyVersion>
+        <FileVersion>5.3.2503.3</FileVersion>
+        <Version>5.3.2503.3</Version>
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="GeeksCoreLibrary" Version="5.3.2503.2" />
+        <PackageReference Include="GeeksCoreLibrary" Version="5.3.2503.3" />
     </ItemGroup>
 
 
