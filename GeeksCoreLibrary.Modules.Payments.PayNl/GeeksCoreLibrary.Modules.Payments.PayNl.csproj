@@ -12,7 +12,7 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="GeeksCoreLibrary" Version="5.3.2506.6" />
+        <PackageReference Include="GeeksCoreLibrary" Version="5.3.2506.7" />
     </ItemGroup>
 
     <!-- Copy the LICENSE and README.md files to the package -->
